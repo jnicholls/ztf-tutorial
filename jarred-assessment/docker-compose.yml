@@ -1,0 +1,91 @@
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: ztf
+      POSTGRES_PASSWORD: ztf
+      POSTGRES_DB: jarred_assessment
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    networks:
+      - app
+
+  rustfs:
+    image: rustfs/rustfs:latest
+    environment:
+      RUSTFS_VOLUMES: "/data/rustfs0"
+      RUSTFS_ADDRESS: "0.0.0.0:9000"
+      RUSTFS_REGION: "us-east-1"
+      RUSTFS_ACCESS_KEY: "viaadmin"
+      RUSTFS_SECRET_KEY: "viaadmin"
+    ports:
+      - "9000:9000"
+    volumes:
+      - rustfs_data:/data
+    networks:
+      - app
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl -f http://127.0.0.1:9000/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: ./Dockerfile
+    develop:
+      watch:
+        - action: rebuild
+          path: ./backend
+          ignore:
+            - target/
+    environment:
+      DATABASE_URL: "postgres://ztf:ztf@postgres:5432/jarred_assessment"
+      RUSTFS_ENDPOINT: "http://rustfs:9000"
+      RUSTFS_REGION: "us-east-1"
+      RUSTFS_BUCKET: "documents"
+      RUSTFS_ACCESS_KEY: "viaadmin"
+      RUSTFS_SECRET_KEY: "viaadmin"
+      RUST_LOG: "info,api=debug"
+    depends_on:
+      postgres:
+        condition: service_started
+      rustfs:
+        condition: service_healthy
+    networks:
+      - app
+    ports:
+      - "8080:8080"
+
+  ui:
+    build:
+      context: ./ui
+      dockerfile: ./Dockerfile
+    develop:
+      watch:
+        - action: rebuild
+          path: ./ui
+          ignore:
+            - dist/
+            - node_modules/
+    environment:
+      VITE_API_BASE_URL: "http://localhost:8080"
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - app
+
+networks:
+  app:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  rustfs_data:
+
